@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Digit Span v2.6.2 - Secure Environment</title>
+    <style>
+        body { background-color: #000; color: #fff; font-family: 'Courier New', Courier, monospace; margin: 0; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        #digit-display { font-size: 800px; line-height: 1; font-weight: 900; }
+        #status-box { position: absolute; top: 30px; left: 30px; padding: 20px; border: 2px solid #333; font-size: 20px; width: 350px; text-transform: uppercase; }
+        .listening { border-color: #00ff00 !important; color: #00ff00; box-shadow: 0 0 15px #00ff00; }
+        .error { border-color: #ff0000 !important; color: #ff0000; }
+        #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div id="overlay" onclick="initTest()">
+        <h1>VISUAL DIGIT SPAN v2.6.2</h1>
+        <p>CLICK TO INITIALIZE SECURE MICROPHONE</p>
+    </div>
+
+    <div id="status-box">SYSTEM IDLE</div>
+    <div id="digit-display"></div>
+
+<script>
+const CONFIG = {
+    START_SPAN: 3,
+    MAX_SPAN: 9,
+    DISPLAY_MS: 2000,
+    INTER_DIGIT_MS: 500,
+    POST_RESPONSE_DELAY: 2000
+};
+
+let currentSpan = CONFIG.START_SPAN;
+let isForward = true;
+let sequence = [];
+let recognition;
+
+// Initialize Speech API
+function initSpeech() {
+    const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Speech) {
+        alert("Speech API not supported. Use Chrome or Edge.");
+        return;
+    }
+    recognition = new Speech();
+    recognition.lang = 'en-US';
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onresult = (event) => {
+        const result = event.results[0][0].transcript.replace(/\D/g, '');
+        console.log("Captured:", result);
+        processInput(result);
+    };
+
+    recognition.onerror = (e) => {
+        console.error("Mic Error:", e.error);
+        if(e.error === 'no-speech') {
+            updateStatus("NO SPEECH DETECTED - RETRYING...", "error");
+            setTimeout(promptResponse, 1000);
+        }
+    };
+}
+
+async function initTest() {
+    document.getElementById('overlay').style.display = 'none';
+    initSpeech();
+    runTrial();
+}
+
+async function runTrial() {
+    sequence = Array.from({length: currentSpan}, () => Math.floor(Math.random() * 10));
+    updateStatus(`PREPARING ${currentSpan} DIGITS...`, "");
+    await sleep(2000);
+
+    for (let digit of sequence) {
+        updateStatus(`DISPLAYING...`, "");
+        const display = document.getElementById('digit-display');
+        display.innerText = digit;
+        await sleep(CONFIG.DISPLAY_MS);
+        display.innerText = "";
+        await sleep(CONFIG.INTER_DIGIT_MS);
+    }
+
+    promptResponse();
+}
+
+function promptResponse() {
+    updateStatus("LISTENING NOW...", "listening");
+    try { recognition.start(); } catch(e) { /* Already started */ }
+}
+
+function processInput(input) {
+    const target = isForward ? sequence.join('') : [...sequence].reverse().join('');
+    const isCorrect = input === target;
+
+    updateStatus(isCorrect ? "CORRECT" : "INCORRECT", isCorrect ? "" : "error");
+    
+    setTimeout(() => {
+        if (isCorrect) {
+            if (currentSpan < CONFIG.MAX_SPAN) {
+                currentSpan++;
+                runTrial();
+            } else if (isForward) {
+                switchMode();
+            } else {
+                finish();
+            }
+        } else {
+            if (isForward) switchMode();
+            else finish();
+        }
+    }, CONFIG.POST_RESPONSE_DELAY);
+}
+
+function switchMode() {
+    isForward = false;
+    currentSpan = CONFIG.START_SPAN;
+    updateStatus("STARTING BACKWARD SPAN", "");
+    setTimeout(runTrial, 2000);
+}
+
+function finish() {
+    document.getElementById('digit-display').style.fontSize = "100px";
+    document.getElementById('digit-display').innerText = "TEST COMPLETE";
+    updateStatus("SESSION ENDED", "");
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function updateStatus(text, className) {
+    const box = document.getElementById('status-box');
+    box.innerText = text;
+    box.className = className;
+}
+
+window.onkeydown = (e) => { if(e.key === "Escape") location.reload(); };
+</script>
+</body>
+</html>
