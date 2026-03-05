@@ -8,9 +8,8 @@
         #digit-display { font-size: 800px; line-height: 1; font-weight: 900; }
         #status-box { position: absolute; top: 30px; left: 30px; padding: 20px; border: 2px solid #333; font-size: 18px; width: 420px; text-transform: uppercase; }
         .listening { border-color: #00ff00 !important; color: #00ff00; box-shadow: 0 0 15px #00ff00; }
-        #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,1); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; cursor: pointer; text-align: center; }
+        #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; cursor: pointer; text-align: center; }
         #download-btn { display: none; margin-top: 20px; padding: 20px 40px; font-size: 24px; cursor: pointer; background: #0044cc; color: white; border: none; border-radius: 5px; }
-        .inst-text { font-size: 24px; color: #aaa; margin-top: 20px; }
     </style>
 </head>
 <body>
@@ -18,16 +17,16 @@
     <div id="overlay" onclick="requestMicAndStart()">
         <h1 style="font-size: 50px; margin-bottom: 10px;">Multi-modality Digit Span Test</h1>
         <h2 style="font-size: 30px; color: #00ccff;">David Hubbard MD, Neurology</h2>
-        <p class="inst-text">CLICK ANYWHERE TO TEST MICROPHONE & BEGIN</p>
+        <p style="font-size: 20px; color: #888; margin-top: 20px;">CLICK TO AUTHORIZE MICROPHONE & BEGIN</p>
     </div>
 
-    <div id="status-box">SYSTEM INITIALIZING</div>
+    <div id="status-box">SYSTEM READY</div>
     <div id="digit-display"></div>
     <button id="download-btn" onclick="downloadCSV()">DOWNLOAD CLINICAL REPORT (CSV)</button>
 
 <script>
 const CONFIG = { START_SPAN: 3, MAX_SPAN: 9, DISPLAY_MS: 2000, INTER_DIGIT_MS: 500, POST_RESPONSE_DELAY: 1500 };
-let patientInfo = { firstName: "", date: new Date().toLocaleDateString(), testNo: "" };
+let patientInfo = { firstName: "", date: new Date().toLocaleDateString(), testNo: "1" };
 let currentSpan = CONFIG.START_SPAN;
 let isForward = true;
 let sequence = [];
@@ -35,46 +34,34 @@ let resultsLog = [];
 let recognition;
 let synth = window.speechSynthesis;
 
-function requestMicAndStart() {
-    const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Speech) { alert("Please use Chrome."); return; }
-    recognition = new Speech();
-    recognition.lang = 'en-US';
-    
-    // Trigger permission dialog immediately
-    recognition.start();
-    recognition.onstart = () => {
-        recognition.stop();
-        document.getElementById('overlay').style.display = 'none';
-        calibrateMic();
-    };
-    recognition.onerror = () => {
-        document.getElementById('overlay').style.display = 'none';
-        calibrateMic();
-    };
-}
-
 function speak(text, callback) {
+    synth.cancel(); // Stop any current talking
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 0.9;
     utterance.onend = callback;
     synth.speak(utterance);
 }
 
-// --- NEW CALIBRATION STEP ---
-async function calibrateMic() {
-    speak("Microphone test. Please state the patient's first name.", () => {
+function requestMicAndStart() {
+    const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new Speech();
+    recognition.lang = 'en-US';
+    recognition.start();
+    recognition.onstart = () => {
+        recognition.stop();
+        document.getElementById('overlay').style.display = 'none';
+        calibrateMic();
+    };
+}
+
+function calibrateMic() {
+    speak("Please state the patient's first name.", () => {
         captureVoice((name) => {
-            if (!name) {
-                speak("I didn't hear anything. Please try again.", calibrateMic);
-            } else {
+            if (!name) { speak("I didn't hear a name. Try again.", calibrateMic); }
+            else {
                 patientInfo.firstName = name;
-                speak(`I heard ${name}. If this is correct, please state the test number.`, () => {
-                    captureVoice((num) => {
-                        patientInfo.testNo = num;
-                        updateStatus(`Patient: ${patientInfo.firstName} | Test: ${patientInfo.testNo}`, "");
-                        beginInstructions();
-                    });
+                speak("I heard " + name + ". The test will now begin. Watch for numbers.", () => {
+                    setTimeout(runTrial, 1000);
                 });
             }
         });
@@ -87,14 +74,8 @@ function captureVoice(callback) {
         recognition.stop();
         callback(event.results[0][0].transcript);
     };
-    recognition.onerror = () => callback(null);
+    recognition.onerror = () => { recognition.stop(); callback(null); };
     recognition.start();
-}
-
-function beginInstructions() {
-    speak("The test will now begin. Watch the screen for numbers. When they disappear, repeat them back in order.", () => {
-        setTimeout(runTrial, 1000);
-    });
 }
 
 async function runTrial() {
@@ -112,7 +93,7 @@ async function runTrial() {
 }
 
 function promptResponse() {
-    updateStatus("LISTENING FOR DIGITS...", "listening");
+    updateStatus("LISTENING FOR RESPONSE...", "listening");
     recognition.onresult = (event) => {
         recognition.stop();
         const result = event.results[0][0].transcript.replace(/\D/g, '');
@@ -145,17 +126,17 @@ function finish() {
     document.getElementById('digit-display').style.fontSize = "80px";
     document.getElementById('digit-display').innerText = "TEST COMPLETE";
     document.getElementById('download-btn').style.display = 'inline-block';
-    speak("Test complete. Please download the clinical report.");
+    speak("Test complete. Download the report.");
 }
 
 function downloadCSV() {
-    let csv = `Patient Name,${patientInfo.firstName}\nDate,${patientInfo.date}\nTest No,${patientInfo.testNo}\n\nMode,Span,Target,Response,Result\n`;
+    let csv = `Patient,${patientInfo.firstName}\nDate,${patientInfo.date}\n\nMode,Span,Target,Response,Result\n`;
     resultsLog.forEach(row => { csv += `${row.Mode},${row.Span},${row.Target},${row.Response},${row.Result}\n`; });
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Report_${patientInfo.firstName}_Test${patientInfo.testNo}.csv`;
+    a.download = `DigitSpan_${patientInfo.firstName}.csv`;
     a.click();
 }
 
@@ -165,7 +146,6 @@ function updateStatus(text, className) {
     box.innerText = text;
     box.className = className;
 }
-window.onkeydown = (e) => { if(e.key === "Escape") location.reload(); };
 </script>
 </body>
 </html>
