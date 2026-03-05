@@ -2,25 +2,30 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Digit Span v2.6.2 - Secure Environment</title>
+    <title>Digit Span v2.7.0 - Clinical Export</title>
     <style>
-        body { background-color: #000; color: #fff; font-family: 'Courier New', Courier, monospace; margin: 0; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
-        #digit-display { font-size: 800px; line-height: 1; font-weight: 900; }
+        body { background-color: #000; color: #fff; font-family: 'Arial', sans-serif; margin: 0; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        #digit-display { font-size: 800px; line-height: 1; font-weight: 900; transition: font-size 0.3s; }
         #status-box { position: absolute; top: 30px; left: 30px; padding: 20px; border: 2px solid #333; font-size: 20px; width: 350px; text-transform: uppercase; }
         .listening { border-color: #00ff00 !important; color: #00ff00; box-shadow: 0 0 15px #00ff00; }
         .error { border-color: #ff0000 !important; color: #ff0000; }
-        #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; cursor: pointer; }
+        #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; cursor: pointer; text-align: center; }
+        #download-btn { display: none; margin-top: 20px; padding: 15px 30px; font-size: 20px; cursor: pointer; background: #0044cc; color: white; border: none; border-radius: 5px; }
     </style>
 </head>
 <body>
 
     <div id="overlay" onclick="initTest()">
-        <h1>VISUAL DIGIT SPAN v2.6.2</h1>
-        <p>CLICK TO INITIALIZE SECURE MICROPHONE</p>
+        <h1 style="font-size: 48px;">VISUAL DIGIT SPAN v2.7.0</h1>
+        <p style="font-size: 24px; color: #aaa;">CLICK TO INITIALIZE SECURE MICROPHONE</p>
     </div>
 
     <div id="status-box">SYSTEM IDLE</div>
-    <div id="digit-display"></div>
+    
+    <div style="text-align: center;">
+        <div id="digit-display"></div>
+        <button id="download-btn" onclick="downloadCSV()">DOWNLOAD CLINICAL REPORT (CSV)</button>
+    </div>
 
 <script>
 const CONFIG = {
@@ -28,37 +33,32 @@ const CONFIG = {
     MAX_SPAN: 9,
     DISPLAY_MS: 2000,
     INTER_DIGIT_MS: 500,
-    POST_RESPONSE_DELAY: 2000
+    POST_RESPONSE_DELAY: 1500
 };
 
 let currentSpan = CONFIG.START_SPAN;
 let isForward = true;
 let sequence = [];
 let recognition;
+let resultsLog = []; // Stores data for CSV
 
-// Initialize Speech API
 function initSpeech() {
     const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Speech) {
-        alert("Speech API not supported. Use Chrome or Edge.");
-        return;
-    }
+    if (!Speech) return alert("Speech API not supported. Use Chrome.");
+    
     recognition = new Speech();
     recognition.lang = 'en-US';
     recognition.continuous = false;
-    recognition.interimResults = false;
 
     recognition.onresult = (event) => {
         const result = event.results[0][0].transcript.replace(/\D/g, '');
-        console.log("Captured:", result);
         processInput(result);
     };
 
     recognition.onerror = (e) => {
-        console.error("Mic Error:", e.error);
         if(e.error === 'no-speech') {
-            updateStatus("NO SPEECH DETECTED - RETRYING...", "error");
-            setTimeout(promptResponse, 1000);
+            updateStatus("RETRYING MIC...", "error");
+            setTimeout(promptResponse, 800);
         }
     };
 }
@@ -75,41 +75,43 @@ async function runTrial() {
     await sleep(2000);
 
     for (let digit of sequence) {
-        updateStatus(`DISPLAYING...`, "");
         const display = document.getElementById('digit-display');
         display.innerText = digit;
         await sleep(CONFIG.DISPLAY_MS);
         display.innerText = "";
         await sleep(CONFIG.INTER_DIGIT_MS);
     }
-
     promptResponse();
 }
 
 function promptResponse() {
     updateStatus("LISTENING NOW...", "listening");
-    try { recognition.start(); } catch(e) { /* Already started */ }
+    try { recognition.start(); } catch(e) {}
 }
 
 function processInput(input) {
     const target = isForward ? sequence.join('') : [...sequence].reverse().join('');
     const isCorrect = input === target;
 
+    // Log the trial
+    resultsLog.push({
+        Mode: isForward ? "Forward" : "Backward",
+        Span: currentSpan,
+        Target: target,
+        Response: input || "None",
+        Result: isCorrect ? "PASS" : "FAIL"
+    });
+
     updateStatus(isCorrect ? "CORRECT" : "INCORRECT", isCorrect ? "" : "error");
     
     setTimeout(() => {
-        if (isCorrect) {
-            if (currentSpan < CONFIG.MAX_SPAN) {
-                currentSpan++;
-                runTrial();
-            } else if (isForward) {
-                switchMode();
-            } else {
-                finish();
-            }
+        if (isCorrect && currentSpan < CONFIG.MAX_SPAN) {
+            currentSpan++;
+            runTrial();
+        } else if (isForward) {
+            switchMode();
         } else {
-            if (isForward) switchMode();
-            else finish();
+            finish();
         }
     }, CONFIG.POST_RESPONSE_DELAY);
 }
@@ -122,9 +124,25 @@ function switchMode() {
 }
 
 function finish() {
-    document.getElementById('digit-display').style.fontSize = "100px";
-    document.getElementById('digit-display').innerText = "TEST COMPLETE";
+    const display = document.getElementById('digit-display');
+    display.style.fontSize = "80px";
+    display.innerText = "TEST COMPLETE";
     updateStatus("SESSION ENDED", "");
+    document.getElementById('download-btn').style.display = 'inline-block';
+}
+
+function downloadCSV() {
+    let csv = "Mode,Span,Target,Response,Result\n";
+    resultsLog.forEach(row => {
+        csv += `${row.Mode},${row.Span},${row.Target},${row.Response},${row.Result}\n`;
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.setAttribute('href', url);
+    a.setAttribute('download', `Digit_Span_Report_${new Date().toLocaleDateString()}.csv`);
+    a.click();
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
