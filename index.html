@@ -2,43 +2,49 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Multi-modality Digit Span Test - Dr. Hubbard</title>
+    <title>Multi-modality Digit Span Test - v2.8.7</title>
     <style>
-        body { background-color: #000; color: #fff; font-family: 'Arial', sans-serif; margin: 0; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column; }
+        body { background-color: #000; color: #fff; font-family: 'Times New Roman', serif; margin: 0; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column; }
         #digit-display { font-size: 800px; line-height: 1; font-weight: 900; }
-        #status-box { position: absolute; top: 30px; left: 30px; padding: 20px; border: 2px solid #333; font-size: 18px; width: 420px; text-transform: uppercase; }
-        .listening { border-color: #00ff00 !important; color: #00ff00; box-shadow: 0 0 15px #00ff00; }
+        #status-box { position: absolute; top: 30px; left: 30px; padding: 20px; border: 1px solid #555; font-size: 18px; width: 420px; text-transform: uppercase; letter-spacing: 2px; }
+        .listening { border-color: #00ff00 !important; color: #00ff00; }
         #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; cursor: pointer; text-align: center; }
-        #download-btn { display: none; margin-top: 20px; padding: 20px 40px; font-size: 24px; cursor: pointer; background: #0044cc; color: white; border: none; border-radius: 5px; }
+        #download-btn { display: none; margin-top: 20px; padding: 20px 40px; font-size: 24px; cursor: pointer; background: #222; color: white; border: 1px solid #fff; }
     </style>
 </head>
 <body>
 
     <div id="overlay" onclick="requestMicAndStart()">
-        <h1 style="font-size: 50px; margin-bottom: 10px;">Multi-modality Digit Span Test</h1>
-        <h2 style="font-size: 30px; color: #00ccff;">David Hubbard MD, Neurology</h2>
-        <p style="font-size: 20px; color: #888; margin-top: 20px;">CLICK TO AUTHORIZE MICROPHONE & BEGIN</p>
+        <h1 style="font-size: 40px; letter-spacing: 5px;">MULTI-MODALITY DIGIT SPAN TEST</h1>
+        <h2 style="font-size: 24px; color: #aaa; font-style: italic;">David Hubbard MD, Neurology</h2>
+        <p style="font-size: 18px; color: #555; margin-top: 40px;">[ CLICK TO INITIALIZE BROADCAST ]</p>
     </div>
 
-    <div id="status-box">SYSTEM READY</div>
+    <div id="status-box">STANDBY</div>
     <div id="digit-display"></div>
-    <button id="download-btn" onclick="downloadCSV()">DOWNLOAD CLINICAL REPORT (CSV)</button>
+    <button id="download-btn" onclick="downloadCSV()">EXPORT CLINICAL RECORD</button>
 
 <script>
 const CONFIG = { START_SPAN: 3, MAX_SPAN: 9, DISPLAY_MS: 2000, INTER_DIGIT_MS: 500, POST_RESPONSE_DELAY: 1500 };
-let patientInfo = { firstName: "", date: new Date().toLocaleDateString(), testNo: "1" };
+let patientInfo = { firstName: "Unknown", date: new Date().toLocaleDateString(), testNo: "1" };
 let currentSpan = CONFIG.START_SPAN;
 let isForward = true;
 let sequence = [];
 let resultsLog = [];
 let recognition;
 let synth = window.speechSynthesis;
+let isSpeaking = false;
 
 function speak(text, callback) {
-    synth.cancel(); // Stop any current talking
+    isSpeaking = true;
+    synth.cancel(); 
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.9;
-    utterance.onend = callback;
+    const voices = synth.getVoices();
+    const ukVoice = voices.find(v => v.lang.includes('en-GB') || v.name.includes('Male'));
+    if (ukVoice) utterance.voice = ukVoice;
+    utterance.pitch = 0.8;
+    utterance.rate = 0.85; 
+    utterance.onend = () => { isSpeaking = false; if (callback) callback(); };
     synth.speak(utterance);
 }
 
@@ -50,39 +56,40 @@ function requestMicAndStart() {
     recognition.onstart = () => {
         recognition.stop();
         document.getElementById('overlay').style.display = 'none';
-        calibrateMic();
+        speak("Good morning, Doctor Hubbard. This is the Multi-modality Digit Span Test, Version 2.8.7. System checks are complete. Please state the patient's first name.", calibrateStep1);
     };
 }
 
-function calibrateMic() {
-    speak("Please state the patient's first name.", () => {
-        captureVoice((name) => {
-            if (!name) { speak("I didn't hear a name. Try again.", calibrateMic); }
-            else {
-                patientInfo.firstName = name;
-                speak("I heard " + name + ". The test will now begin. Watch for numbers.", () => {
-                    setTimeout(runTrial, 1000);
-                });
-            }
+function calibrateStep1() {
+    captureVoice((name) => {
+        patientInfo.firstName = name || "Patient";
+        updateStatus("RECORDED: " + patientInfo.firstName, "");
+        speak("Thank you. Now, state the test number.", calibrateStep2);
+    });
+}
+
+function calibrateStep2() {
+    captureVoice((num) => {
+        patientInfo.testNo = num || "1";
+        speak("Acknowledged. The test will now begin. Watch for numbers.", () => {
+            setTimeout(runTrial, 1000);
         });
     });
 }
 
 function captureVoice(callback) {
-    updateStatus("LISTENING...", "listening");
-    recognition.onresult = (event) => {
-        recognition.stop();
-        callback(event.results[0][0].transcript);
-    };
-    recognition.onerror = () => { recognition.stop(); callback(null); };
-    recognition.start();
+    if (isSpeaking) return; 
+    updateStatus("LISTENING", "listening");
+    let timer = setTimeout(() => { recognition.stop(); callback(null); }, 6000);
+    recognition.onresult = (event) => { clearTimeout(timer); recognition.stop(); callback(event.results[0][0].transcript); };
+    recognition.onerror = () => { clearTimeout(timer); recognition.stop(); callback(null); };
+    try { recognition.start(); } catch(e) {}
 }
 
 async function runTrial() {
     sequence = Array.from({length: currentSpan}, () => Math.floor(Math.random() * 10));
-    updateStatus(`DISPLAYING ${currentSpan} DIGITS`, "");
+    updateStatus(`SPAN: ${currentSpan} DIGITS`, "");
     await sleep(1500);
-
     for (let digit of sequence) {
         document.getElementById('digit-display').innerText = digit;
         await sleep(CONFIG.DISPLAY_MS);
@@ -93,7 +100,7 @@ async function runTrial() {
 }
 
 function promptResponse() {
-    updateStatus("LISTENING FOR RESPONSE...", "listening");
+    updateStatus("AWAITING RESPONSE", "listening");
     recognition.onresult = (event) => {
         recognition.stop();
         const result = event.results[0][0].transcript.replace(/\D/g, '');
@@ -106,27 +113,22 @@ function processInput(input) {
     const target = isForward ? sequence.join('') : [...sequence].reverse().join('');
     const isCorrect = input === target;
     resultsLog.push({ Mode: isForward ? "Forward" : "Backward", Span: currentSpan, Target: target, Response: input || "None", Result: isCorrect ? "PASS" : "FAIL" });
-    updateStatus(isCorrect ? "CORRECT" : "INCORRECT", isCorrect ? "" : "error");
-    
+    updateStatus(isCorrect ? "ACCEPTED" : "ERROR", isCorrect ? "" : "error");
     setTimeout(() => {
         if (isCorrect && currentSpan < CONFIG.MAX_SPAN) {
-            currentSpan++;
-            runTrial();
+            currentSpan++; runTrial();
         } else if (isForward) {
-            isForward = false;
-            currentSpan = CONFIG.START_SPAN;
+            isForward = false; currentSpan = CONFIG.START_SPAN;
             speak("Now, repeat the numbers in backward order.", runTrial);
-        } else {
-            finish();
-        }
+        } else { finish(); }
     }, CONFIG.POST_RESPONSE_DELAY);
 }
 
 function finish() {
     document.getElementById('digit-display').style.fontSize = "80px";
-    document.getElementById('digit-display').innerText = "TEST COMPLETE";
+    document.getElementById('digit-display').innerText = "SESSION COMPLETE";
     document.getElementById('download-btn').style.display = 'inline-block';
-    speak("Test complete. Download the report.");
+    speak("Protocol complete. Please export the clinical record.");
 }
 
 function downloadCSV() {
@@ -136,15 +138,14 @@ function downloadCSV() {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `DigitSpan_${patientInfo.firstName}.csv`;
+    a.download = `Report_${patientInfo.firstName}.csv`;
     a.click();
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function updateStatus(text, className) {
     const box = document.getElementById('status-box');
-    box.innerText = text;
-    box.className = className;
+    box.innerText = text; box.className = className;
 }
 </script>
 </body>
